@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Расходы">
+<meta name="theme-color" content="#0E7C6B">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font-size:14px;font-family:system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body><title>Мои расходы</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Unbounded:wght@500;700&display=swap">
+<style>
+/* Layout: header with month switcher → 4 summary tiles → categories | days → operations ledger */
+:root{
+  --bg:#F2F5F4; --surface:#FFFFFF; --ink:#15201D; --muted:#5B6A66; --line:#DCE3E0;
+  --accent:#0E7C6B; --accent-ink:#FFFFFF; --accent-soft:#DDF0EB;
+  --danger:#C92A2A; --danger-soft:#FBE4E4; --warn:#B86E00; --good:#2B8A3E;
+  --display:"Unbounded", "Onest", system-ui, sans-serif;
+  --body:"Onest", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --shadow:0 1px 2px rgba(20,32,29,.06), 0 8px 24px rgba(20,32,29,.06);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E1412; --surface:#161E1B; --ink:#E5EEEB; --muted:#93A39E; --line:#27322E;
+  --accent:#3FC1A7; --accent-ink:#04211B; --accent-soft:#133A33;
+  --danger:#FF7676; --danger-soft:#3A1B1B; --warn:#F2B04A; --good:#6BD982;
+  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0E1412; --surface:#161E1B; --ink:#E5EEEB; --muted:#93A39E; --line:#27322E;
+  --accent:#3FC1A7; --accent-ink:#04211B; --accent-soft:#133A33;
+  --danger:#FF7676; --danger-soft:#3A1B1B; --warn:#F2B04A; --good:#6BD982;
+  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+.wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+
+header.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;justify-content:space-between}
+h1{font-family:var(--display);font-weight:700;font-size:26px;letter-spacing:-.01em;margin:0}
+.sub{color:var(--muted);font-size:13px}
+.month{display:flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px}
+.month button{border:0;background:transparent;width:34px;height:34px;border-radius:50%;font-size:18px;color:var(--muted)}
+.month button:hover{background:var(--accent-soft);color:var(--ink)}
+.month .label{min-width:150px;text-align:center;font-weight:600}
+.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 14px;font-weight:500}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.danger{color:var(--danger);border-color:var(--danger-soft);background:var(--danger-soft)}
+.btn.small{padding:5px 10px;font-size:13px;border-radius:8px}
+.linkbtn{border:0;background:none;color:var(--accent);font-weight:600;padding:0;text-decoration:underline;text-underline-offset:3px}
+
+.accsw{display:flex;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px}
+.accsw button{border:0;background:transparent;border-radius:999px;padding:7px 14px;font-weight:500;color:var(--muted)}
+.accsw button:hover{color:var(--ink)}
+.accsw button[aria-pressed="true"]{background:var(--ink);color:var(--bg);font-weight:600}
+.acc{font-size:11px;font-weight:600;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:1px;background:var(--accent-soft);color:var(--ink)}
+.acc.work{background:var(--ink);color:var(--bg)}
+.notice{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;background:var(--accent-soft);border-radius:12px;padding:10px 14px;font-size:14px}
+.notice.err{background:var(--danger-soft)}
+
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.kpi .k{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.kpi .v{font-family:var(--display);font-weight:500;font-size:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .d{font-size:13px;color:var(--muted)}
+.up{color:var(--danger)} .down{color:var(--good)}
+.kpi.lead{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.kpi.lead .k,.kpi.lead .d{color:var(--accent-ink);opacity:.8}
+
+.grid2{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;min-width:0;display:flex;flex-direction:column;gap:14px}
+.panel h2{font-size:16px;font-weight:600;margin:0}
+.ph{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+
+.cats{display:flex;flex-direction:column;gap:12px}
+.crow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:baseline;border:0;background:none;text-align:left;padding:4px 6px;margin:-4px -6px;border-radius:8px}
+button.crow:hover{background:var(--bg)}
+.crow.sel{background:var(--accent-soft)}
+.cname{display:flex;align-items:center;gap:8px;min-width:0;font-weight:500}
+.cname span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{width:10px;height:10px;border-radius:3px;flex:none}
+.camt{font-weight:600}
+.track{grid-column:1/-1;position:relative;height:8px;background:var(--bg);border-radius:4px}
+.fill{position:absolute;inset:0 auto 0 0;border-radius:4px}
+.limit{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);border-radius:1px}
+.cmeta{grid-column:1/-1;font-size:12.5px;color:var(--muted)}
+.cmeta .over{color:var(--danger);font-weight:600}
+.cmeta .near{color:var(--warn);font-weight:600}
+.bedit{display:grid;grid-template-columns:minmax(0,1fr) 130px;gap:8px 12px;align-items:center}
+.bedit input{width:100%;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);text-align:right}
+.empty{color:var(--muted);font-size:14px;padding:12px 0}
+
+.chart{width:100%;height:auto;display:block}
+.chart .ax{fill:var(--muted);font-size:11px;font-family:var(--body)}
+.chart .gl{stroke:var(--line);stroke-width:1}
+.chart .bar{fill:var(--accent)}
+.chart .bar.zero{fill:var(--line)}
+.chart .bar.today{fill:var(--ink)}
+.chart .hit{fill:transparent}
+.chart g:hover .bar{opacity:.75}
+.daystat{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.daystat b{color:var(--ink);font-weight:600}
+
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px;font-size:13px}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.chip .n{opacity:.65}
+.tools{display:flex;gap:10px;flex-wrap:wrap}
+.tools input,.tools select{padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.tools input{flex:1 1 220px;min-width:0}
+
+.ledger{width:100%;border-collapse:collapse}
+.ledger th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+.ledger td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.ledger tbody tr{cursor:pointer}
+.ledger tbody tr:hover{background:var(--bg)}
+.ledger .r{text-align:right}
+.ledger .amt{font-weight:600;white-space:nowrap}
+.ledger .date{white-space:nowrap;color:var(--muted)}
+.ledger .note{min-width:0;word-break:break-word}
+.tag{display:inline-flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap}
+.pill{font-size:11px;border:1px dashed var(--muted);color:var(--muted);border-radius:6px;padding:0 5px;margin-left:6px;vertical-align:1px}
+.method{font-size:13px;color:var(--muted)}
+.ltotal{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font-size:14px;color:var(--muted)}
+.ltotal b{color:var(--ink)}
+
+/* modal */
+.overlay{position:fixed;inset:0;background:rgba(10,16,14,.45);display:flex;align-items:flex-start;justify-content:center;
+  padding:max(24px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px));overflow:auto;z-index:20}
+.modal{background:var(--surface);border-radius:18px;width:100%;max-width:520px;padding:20px;display:flex;flex-direction:column;gap:16px;box-shadow:var(--shadow);border:1px solid var(--line)}
+.modal h3{margin:0;font-family:var(--display);font-weight:500;font-size:18px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label,.field .lbl{font-size:13px;color:var(--muted);font-weight:500}
+.field input,.field select{padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);width:100%}
+.amount-in{font-family:var(--display);font-size:24px!important}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.catpick{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px}
+.catpick label{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:7px 9px;font-size:13px;cursor:pointer}
+.catpick input{position:absolute;opacity:0;pointer-events:none}
+.catpick label:has(input:checked){border-color:var(--ink);background:var(--bg);font-weight:600}
+.catpick label:has(input:focus-visible){outline:2px solid var(--accent)}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg label{flex:1;text-align:center;padding:8px;font-size:14px;cursor:pointer;position:relative}
+.seg label+label{border-left:1px solid var(--line)}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label:has(input:checked){background:var(--ink);color:var(--bg);font-weight:600}
+.mfoot{display:flex;gap:10px;justify-content:space-between;flex-wrap:wrap}
+.mfoot .right{display:flex;gap:10px;margin-left:auto}
+.err-text{color:var(--danger);font-size:13px}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:30;max-width:calc(100% - 32px)}
+
+@media (max-width:860px){.grid2{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:760px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){
+  h1{font-size:22px}
+  .ledger thead{display:none}
+  .ledger,.ledger tbody{display:block}
+  .ledger tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;padding:10px 4px;border-bottom:1px solid var(--line)}
+  .ledger td{border:0;padding:0}
+  .ledger td.note{grid-column:1;grid-row:1;font-weight:500}
+  .ledger td.amt{grid-column:2;grid-row:1}
+  .ledger td.cat{grid-column:1;grid-row:2}
+  .ledger td.date{grid-column:2;grid-row:2;text-align:right;font-size:13px}
+  .ledger td.method{display:none}
+  .row2{grid-template-columns:1fr}
+  .kpi .v{font-size:19px}
+}
+@media (prefers-reduced-motion:no-preference){.fill{transition:width .35s ease}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Мои расходы</h1>
+      <div class="sub" id="modeLine">Загрузка…</div>
+    </div>
+    <div class="actions">
+      <div class="accsw" role="group" aria-label="Счёт" id="accsw">
+        <button data-acc="all">Все</button>
+        <button data-acc="personal">Личный</button>
+        <button data-acc="work">Рабочий</button>
+      </div>
+      <div class="month" role="group" aria-label="Месяц">
+        <button id="prevM" aria-label="Предыдущий месяц">‹</button>
+        <div class="label" id="mLabel"></div>
+        <button id="nextM" aria-label="Следующий месяц">›</button>
+      </div>
+      <button class="btn primary" id="addBtn">+ Добавить расход</button>
+    </div>
+  </header>
+
+  <div id="notice"></div>
+
+  <section class="kpis" id="kpis" aria-label="Итоги месяца"></section>
+
+  <div class="grid2">
+    <section class="panel">
+      <div class="ph"><h2>По категориям</h2><button class="btn small" id="budgetBtn">Лимиты</button></div>
+      <div id="cats" class="cats"></div>
+    </section>
+    <section class="panel">
+      <div class="ph"><h2>По дням</h2></div>
+      <div id="days"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="ph"><h2>Операции</h2></div>
+    <div class="filters" id="chips"></div>
+    <div class="tools">
+      <input id="q" type="search" placeholder="Поиск по описанию" aria-label="Поиск">
+      <select id="sort" aria-label="Сортировка">
+        <option value="date-desc">Сначала новые</option>
+        <option value="date-asc">Сначала старые</option>
+        <option value="amt-desc">Сначала дорогие</option>
+        <option value="amt-asc">Сначала дешёвые</option>
+        <option value="cat">По категории</option>
+      </select>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="ledger">
+        <thead><tr><th>Дата</th><th>Описание</th><th>Категория</th><th>Способ</th><th class="r">Сумма</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="ltotal" id="ltotal"></div>
+  </section>
+</div>
+
+<div id="modalRoot"></div>
+<div id="toastRoot"></div>
+
+<script>
+const CATS=[
+  {id:'food',name:'Продукты',color:'#2F9E44'},
+  {id:'cafe',name:'Кафе и рестораны',color:'#E8590C'},
+  {id:'transport',name:'Транспорт',color:'#1C7ED6'},
+  {id:'home',name:'Жильё и ЖКХ',color:'#7048E8'},
+  {id:'telecom',name:'Связь и интернет',color:'#0C8599'},
+  {id:'health',name:'Здоровье',color:'#E03131'},
+  {id:'clothes',name:'Одежда',color:'#C2255C'},
+  {id:'fun',name:'Развлечения',color:'#F08C00'},
+  {id:'subs',name:'Подписки',color:'#5C7CFA'},
+  {id:'gifts',name:'Подарки',color:'#D6336C'},
+  {id:'edu',name:'Образование',color:'#66A80F'},
+  {id:'other',name:'Другое',color:'#868E96'}
+];
+const CAT=Object.fromEntries(CATS.map(c=>[c.id,c]));
+const METHODS={card:'Карта',cash:'Наличные',transfer:'Перевод'};
+const ACCOUNTS={personal:'Личный',work:'Рабочий'};
+const accOf=e=>e.account==='work'?'work':'personal';
+const inAcc=e=>state.acc==='all'||accOf(e)===state.acc;
+function normBudgets(raw){if(!raw)return{personal:{},work:{}};if(raw.personal||raw.work)return{personal:raw.personal||{},work:raw.work||{}};return{personal:raw,work:{}}}
+function curBudgets(){const b=state.budgets;if(state.acc!=='all')return b[state.acc]||{};const o={};for(const a of ['personal','work'])for(const[k,v]of Object.entries(b[a]||{}))o[k]=(o[k]||0)+(+v||0);return o}
+const MONTHS=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+const MONTHS_GEN=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+const LOCAL_KEY='expenses-local-v1';
+
+const $=s=>document.querySelector(s);
+const pad=n=>String(n).padStart(2,'0');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2});
+const money=v=>fmt.format(Math.round(v*100)/100)+' ₽';
+const short=v=>v>=1e6?fmt.format(+(v/1e6).toFixed(1))+' млн':v>=1e3?fmt.format(+(v/1e3).toFixed(v>=1e4?0:1))+' тыс':fmt.format(Math.round(v));
+const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const ymKey=(y,m)=>y+'-'+pad(m+1);
+const daysIn=(y,m)=>new Date(y,m+1,0).getDate();
+const plural=(n,a,b,c)=>{n=Math.abs(n)%100;const n1=n%10;if(n>10&&n<20)return c;if(n1>1&&n1<5)return b;if(n1===1)return a;return c};
+
+const now=new Date();
+const state={mode:'loading',acc:'all',items:[],budgets:{personal:{},work:{}},y:now.getFullYear(),m:now.getMonth(),cats:new Set(),q:'',sort:'date-desc',budgetEdit:false,notice:null,readOnly:false};
+
+/* ---------- storage ---------- */
+let backend=null;
+function lsGet(){try{return JSON.parse(localStorage.getItem(LOCAL_KEY)||'null')}catch(e){return null}}
+function lsSet(v){try{localStorage.setItem(LOCAL_KEY,JSON.stringify(v))}catch(e){}}
+const uid=()=>'e'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+
+function startLocal(){
+  let saved=lsGet();
+  if(!saved){const ex=makeExamples();saved={items:ex.items,budgets:ex.budgets};lsSet(saved)}
+  state.items=saved.items||[];state.budgets=normBudgets(saved.budgets);state.mode='local';
+  const persist=()=>lsSet({items:state.items,budgets:state.budgets});
+  backend={
+    async add(e){state.items.push({...e,id:uid()});persist();render()},
+    async update(id,e){state.items=state.items.map(x=>x.id===id?{...e,id}:x);persist();render()},
+    async remove(id){state.items=state.items.filter(x=>x.id!==id);persist();render()},
+    async setBudgets(b){state.budgets=b;persist();render()},
+    async addMany(list){list.forEach(e=>state.items.push({...e,id:uid()}));persist();render()},
+    async removeMany(ids){const s=new Set(ids);state.items=state.items.filter(x=>!s.has(x.id));persist();render()}
+  };
+  render();
+}
+
+function startDb(db,userId){
+  const profile=db.doc('data/users/'+userId+'/profile');
+  const col=profile.collection('expenses');
+  state.mode='db';state.dbLoaded=false;
+  const timer=setTimeout(()=>{if(!state.dbLoaded){state.notice={err:true,text:'Данные пока не загрузились. Проверьте соединение, страница подхватит их сама.'};render()}},10000);
+  col.orderBy('date','desc').limit(1000).onSnapshot(snap=>{
+    state.items=snap.docs.map(d=>({...d.data(),id:d.id}));
+    if(!snap.metadata.fromCache){state.dbLoaded=true;clearTimeout(timer);if(state.notice&&state.notice.err)state.notice=null}
+    render();
+  },err=>{clearTimeout(timer);state.dbLoaded=true;state.notice={err:true,text:'Не удалось загрузить расходы. Обновите страницу немного позже.'};render()});
+  profile.onSnapshot(s=>{state.budgets=normBudgets(s.exists&&s.data().budgets);render()},()=>{});
+  const guard=p=>p.catch(e=>{if(e&&e.code==='invalid_argument'){state.readOnly=true;toast('У вас нет прав на запись в этом расходнике.')}else if(e&&e.code==='quota_exceeded'){toast('Хранилище заполнено. Удалите старые записи.')}else{toast('Не удалось сохранить. Попробуйте ещё раз.')}render();throw e});
+  const clean=e=>{const o={...e};delete o.id;return o};
+  backend={
+    add:e=>guard(col.doc().set(clean(e))),
+    update:(id,e)=>guard(col.doc(id).set(clean(e))),
+    remove:id=>guard(col.doc(id).delete()),
+    setBudgets:b=>guard(profile.set({budgets:b})),
+    async addMany(list){for(let i=0;i<list.length;i+=6){await Promise.all(list.slice(i,i+6).map(e=>guard(col.doc().set(clean(e)))))}},
+    async removeMany(ids){for(let i=0;i<ids.length;i+=6){await Promise.all(ids.slice(i,i+6).map(id=>guard(col.doc(id).delete())))}}
+  };
+  render();
+}
+
+/* ---------- Telegram ---------- */
+const tg=(window.Telegram&&window.Telegram.WebApp&&window.Telegram.WebApp.initData)?window.Telegram.WebApp:null;
+function tgTheme(){
+  if(!tg)return;
+  document.documentElement.setAttribute('data-theme',tg.colorScheme==='dark'?'dark':'light');
+  const bg=getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+  try{tg.setHeaderColor(bg);tg.setBackgroundColor(bg)}catch(e){}
+}
+if(tg){
+  tg.ready();tg.expand();tgTheme();tg.onEvent('themeChanged',tgTheme);
+  try{if(tg.isVersionAtLeast('7.7'))tg.disableVerticalSwipes()}catch(e){}
+}
+
+/* Облако Telegram: значение до 4096 символов, до 1024 ключей.
+   Записи месяца хранятся под ключами m_ГГГГ_ММ_0, _1, … ; в начале части 0 стоит число частей ("3|…"). */
+const CHUNK=3800;
+const cs=(method,...args)=>new Promise((res,rej)=>tg.CloudStorage[method](...args,(err,val)=>err?rej(err):res(val)));
+const monthOf=date=>date.slice(0,7).replace('-','_');
+const pack=e=>[e.id,+e.date.slice(8,10),e.amount,e.category,e.method,e.account==='work'?1:0,e.note||'',e.example?1:0,e.createdAt||0];
+const unpack=(r,g)=>({id:r[0],date:g.replace('_','-')+'-'+pad(r[1]),amount:r[2],category:r[3],method:r[4],account:r[5]?'work':'personal',note:r[6],example:!!r[7],createdAt:r[8]});
+function splitChunks(json){const parts=[];for(let i=0;i<json.length;i+=CHUNK)parts.push(json.slice(i,i+CHUNK));if(!parts.length)parts.push('');parts[0]=parts.length+'|'+parts[0];return parts}
+function joinChunks(get){const first=get(0);if(first==null)return null;const bar=first.indexOf('|');const n=parseInt(first.slice(0,bar),10);if(!(n>0))return null;let s=first.slice(bar+1);for(let i=1;i<n;i++){const p=get(i);if(p==null)return null;s+=p}return s}
+
+async function startCloud(){
+  state.mode='cloud';render();
+  const written={};// месяц -> сколько частей лежит в облаке
+  try{
+    const keys=await cs('getKeys');
+    const vals={};
+    for(let i=0;i<keys.length;i+=40)Object.assign(vals,await cs('getItems',keys.slice(i,i+40)));
+    state.budgets=normBudgets(vals.budgets?JSON.parse(vals.budgets):null);
+    const months=new Set(keys.filter(k=>/^m_\d{4}_\d{2}_\d+$/.test(k)).map(k=>k.slice(2,9)));
+    const items=[];const broken=[];
+    months.forEach(g=>{
+      written[g]=keys.filter(k=>k.startsWith('m_'+g+'_')).length;
+      const s=joinChunks(i=>vals['m_'+g+'_'+i]);
+      try{JSON.parse(s).forEach(r=>items.push(unpack(r,g)))}catch(e){broken.push(g.replace('_','.'))}
+    });
+    state.items=items;
+    if(broken.length)state.notice={err:true,text:'Не удалось прочитать записи за '+broken.join(', ')+'. Остальные данные на месте.'};
+  }catch(e){
+    state.notice={err:true,text:'Не удалось загрузить данные из Telegram. Закройте приложение и откройте снова.'};
+    state.readOnly=true;
+  }
+  state.dbLoaded=true;
+
+  let queue=Promise.resolve();
+  const enqueue=f=>(queue=queue.then(f,f));
+  const fail=()=>toast('Не удалось сохранить в облако Telegram. Проверьте интернет.');
+  const writeMonth=g=>enqueue(async()=>{
+    const list=state.items.filter(e=>monthOf(e.date)===g).map(pack);
+    const old=written[g]||0;
+    try{
+      let n=0;
+      if(list.length){const parts=splitChunks(JSON.stringify(list));n=parts.length;for(let i=0;i<n;i++)await cs('setItem','m_'+g+'_'+i,parts[i])}
+      const stale=[];for(let i=n;i<old;i++)stale.push('m_'+g+'_'+i);
+      if(stale.length)await cs('removeItems',stale);
+      written[g]=n;
+    }catch(e){fail()}
+  });
+  const writeMonths=list=>Promise.all([...new Set(list.map(e=>monthOf(e.date)))].map(writeMonth));
+  backend={
+    async add(e){const it={...e,id:uid()};state.items.push(it);render();await writeMonth(monthOf(it.date))},
+    async update(id,e){const old=state.items.find(x=>x.id===id);state.items=state.items.map(x=>x.id===id?{...e,id}:x);render();
+      await writeMonth(monthOf(e.date));if(old&&monthOf(old.date)!==monthOf(e.date))await writeMonth(monthOf(old.date))},
+    async remove(id){const old=state.items.find(x=>x.id===id);state.items=state.items.filter(x=>x.id!==id);render();if(old)await writeMonth(monthOf(old.date))},
+    async setBudgets(b){state.budgets=b;render();await enqueue(()=>cs('setItem','budgets',JSON.stringify(b)).catch(fail))},
+    async addMany(list){const added=list.map(e=>({...e,id:uid()}));state.items.push(...added);render();await writeMonths(added)},
+    async removeMany(ids){const s=new Set(ids);const gone=state.items.filter(x=>s.has(x.id));state.items=state.items.filter(x=>!s.has(x.id));render();await writeMonths(gone)}
+  };
+  render();
+}
+
+if(tg&&tg.CloudStorage&&tg.isVersionAtLeast('6.9'))startCloud();else startLocal();
+
+/* ---------- examples ---------- */
+function makeExamples(){
+  let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return (seed-1)/2147483646};
+  const between=(a,b)=>Math.round((a+rnd()*(b-a))/10)*10;
+  const items=[];const t=new Date();
+  const add=(d,cat,note,amount,method='card',account='personal')=>items.push({date:iso(d),category:cat,note,amount,method,account,example:true,createdAt:Date.now()});
+  for(const back of [1,0]){
+    const y=t.getFullYear(),m=t.getMonth()-back;const base=new Date(y,m,1);
+    const last=back?daysIn(base.getFullYear(),base.getMonth()):t.getDate();
+    const D=day=>new Date(base.getFullYear(),base.getMonth(),day);
+    const fixed=[[1,'transport','Проездной на месяц',2900],[5,'home','Аренда квартиры',35000,'transfer'],[10,'home','Коммунальные платежи',between(5600,6800)],[12,'subs','Музыкальный сервис',299],[15,'telecom','Мобильная связь',600],[15,'telecom','Домашний интернет',750],[20,'subs','Видеосервис',399]];
+    fixed.forEach(f=>{if(f[0]<=last)add(D(f[0]),f[1],f[2],f[3],f[4])});
+    for(let d=2;d<=last;d+=3)add(D(d),'food',rnd()<.5?'Супермаркет':'Продукты на неделю',between(900,3200));
+    const extra=[['cafe','Кофе с собой',[180,320],9],['cafe','Обед в кафе',[450,900],5],['cafe','Ужин с друзьями',[1800,3600],1],['transport','Такси',[350,900],4],['health','Аптека',[300,1600],2],['fun','Кино',[600,1200],1],['fun','Концерт',[2500,4500],back],['clothes','Кроссовки',[5000,8000],back],['gifts','Подарок на день рождения',[2000,4000],1-back],['edu','Онлайн-курс',[3900,3900],back],['other','Стрижка',[1200,1500],1]];
+    extra.forEach(([cat,note,[a,b],n])=>{for(let i=0;i<n;i++){const d=1+Math.floor(rnd()*last);add(D(d),cat,note,between(a,b),cat==='cafe'&&rnd()<.25?'cash':'card')}});
+    [[3,'subs','Сервис для работы с документами',990],[8,'telecom','Рабочий телефон',500]].forEach(f=>{if(f[0]<=last)add(D(f[0]),f[1],f[2],f[3],'card','work')});
+    const work=[['transport','Такси к клиенту',[400,1100],4],['cafe','Обед с клиентом',[1500,3500],2],['other','Канцелярия',[300,900],1],['edu','Профессиональная книга',[700,1500],back],['transport','Билеты в командировку',[6000,9000],back],['home','Гостиница в командировке',[4500,7000],back]];
+    work.forEach(([cat,note,[a,b],n])=>{for(let i=0;i<n;i++){const d=1+Math.floor(rnd()*last);add(D(d),cat,note,between(a,b),'card','work')}});
+  }
+  return {items,budgets:{personal:{food:25000,cafe:9000,transport:6000,fun:5000,clothes:6000},work:{transport:12000,cafe:5000}}};
+}
+
+/* ---------- derived ---------- */
+function monthItems(y,m,all){const k=ymKey(y,m);return state.items.filter(e=>(e.date||'').startsWith(k)&&(all||inAcc(e)))}
+function sum(list){return list.reduce((s,e)=>s+(+e.amount||0),0)}
+
+/* ---------- render ---------- */
+function render(){
+  const {y,m}=state;
+  $('#mLabel').textContent=MONTHS[m]+' '+y;
+  $('#modeLine').textContent=state.mode==='loading'?'Загрузка…':state.mode==='cloud'?(state.dbLoaded?'Записи хранятся в облаке Telegram и видны на всех ваших устройствах':'Загружаю записи из Telegram…'):state.mode==='db'?'Записи видны только вам и сохраняются в вашем аккаунте':'Записи сохраняются только в этом браузере';
+  $('#addBtn').disabled=state.readOnly;
+  document.querySelectorAll('#accsw [data-acc]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.acc===state.acc));
+
+  const cur=monthItems(y,m);
+  const pd=new Date(y,m-1,1);const prev=monthItems(pd.getFullYear(),pd.getMonth());
+  const total=sum(cur),ptotal=sum(prev);
+
+  // notice
+  const hasEx=state.items.some(e=>e.example);
+  let n='';
+  if(state.notice)n=`<div class="notice ${state.notice.err?'err':''}">${esc(state.notice.text)}</div>`;
+  else if(hasEx&&!state.readOnly)n=`<div class="notice"><span>Сейчас здесь примеры, чтобы было видно, как всё работает. Записи с пометкой «пример» можно удалить разом.</span><button class="linkbtn" id="clearEx">Удалить примеры</button></div>`;
+  else if((state.mode==='db'||state.mode==='cloud')&&state.dbLoaded&&!state.items.length&&!state.readOnly)n=`<div class="notice"><span>Пока нет ни одной записи. Добавьте первый расход кнопкой «+ Добавить расход» или загрузите примеры.</span><button class="linkbtn" id="loadEx">Загрузить примеры</button></div>`;
+  $('#notice').innerHTML=n;
+  const ce=$('#clearEx');if(ce)ce.onclick=async()=>{await backend.removeMany(state.items.filter(e=>e.example).map(e=>e.id));toast('Примеры удалены')};
+  const le=$('#loadEx');if(le)le.onclick=async()=>{const ex=makeExamples();await backend.addMany(ex.items);if(!Object.keys(state.budgets.personal).length&&!Object.keys(state.budgets.work).length)await backend.setBudgets(ex.budgets);toast('Примеры загружены')};
+
+  // KPIs
+  const isCur=y===now.getFullYear()&&m===now.getMonth();
+  const future=new Date(y,m,1)>now;
+  const elapsed=future?0:isCur?now.getDate():daysIn(y,m);
+  const byCat={};cur.forEach(e=>byCat[e.category]=(byCat[e.category]||0)+(+e.amount||0));
+  const top=Object.entries(byCat).sort((a,b)=>b[1]-a[1])[0];
+  let delta='<span>нет данных за прошлый месяц</span>';
+  if(ptotal>0){const p=(total-ptotal)/ptotal*100;delta=`<span class="${p>0?'up':'down'}">${p>0?'▲':'▼'} ${fmt.format(Math.abs(Math.round(p)))}%</span> к прошлому месяцу`}
+  const cnt=cur.length;
+  const leadSub=state.acc==='all'?`Личный ${short(sum(cur.filter(e=>accOf(e)==='personal')))} ₽ · Рабочий ${short(sum(cur.filter(e=>accOf(e)==='work')))} ₽`:`${cnt} ${plural(cnt,'операция','операции','операций')}`;
+  const leadK=state.acc==='all'?'Потрачено за месяц':'Потрачено · '+ACCOUNTS[state.acc].toLowerCase()+' счёт';
+  $('#kpis').innerHTML=`
+    <div class="kpi lead"><div class="k">${leadK}</div><div class="v num">${money(total)}</div><div class="d num">${leadSub}</div></div>
+    <div class="kpi"><div class="k">Прошлый месяц</div><div class="v num">${money(ptotal)}</div><div class="d">${delta}</div></div>
+    <div class="kpi"><div class="k">В среднем в день</div><div class="v num">${elapsed?money(total/elapsed):'—'}</div><div class="d">${elapsed?`за ${elapsed} ${plural(elapsed,'день','дня','дней')}`:'месяц ещё не начался'}</div></div>
+    <div class="kpi"><div class="k">Больше всего на</div><div class="v">${top?esc(CAT[top[0]]?.name||'Другое'):'—'}</div><div class="d">${top?`${money(top[1])} · ${Math.round(top[1]/total*100)}% расходов`:'нет расходов'}</div></div>`;
+
+  renderCats(byCat,total);
+  renderDays(cur,y,m,elapsed,total);
+  renderList(cur,byCat);
+}
+
+function renderCats(byCat,total){
+  const el=$('#cats');const b=curBudgets();
+  $('#budgetBtn').textContent=state.budgetEdit?'Готово':'Лимиты';
+  $('#budgetBtn').hidden=state.readOnly||state.acc==='all';
+  if(state.budgetEdit){
+    el.innerHTML=`<div class="sub">Месячные лимиты для счёта «${ACCOUNTS[state.acc]}». Пустое поле означает без лимита.</div>`+
+      CATS.map(c=>`<div class="bedit"><label class="cname" for="b-${c.id}"><span class="dot" style="background:${c.color}"></span><span>${c.name}</span></label><input id="b-${c.id}" class="num" type="number" min="0" step="100" inputmode="numeric" placeholder="без лимита" value="${b[c.id]||''}"></div>`).join('');
+    return;
+  }
+  const rows=CATS.filter(c=>byCat[c.id]||b[c.id]).map(c=>({c,v:byCat[c.id]||0,lim:+b[c.id]||0})).sort((a,b2)=>b2.v-a.v);
+  if(!rows.length){el.innerHTML='<div class="empty">В этом месяце расходов нет.</div>';return}
+  const hint=state.acc==='all'&&Object.keys(b).length?'<div class="sub">Лимиты сложены по обоим счетам. Чтобы изменить их, выберите «Личный» или «Рабочий».</div>':'';
+  const scale=Math.max(...rows.map(r=>Math.max(r.v,r.lim)))||1;
+  el.innerHTML=rows.map(({c,v,lim})=>{
+    let meta=total?`${Math.round(v/total*100)}% от всех расходов`:'';
+    if(lim){const left=lim-v;const r=v/lim;
+      meta=left<0?`<span class="over">Лимит ${money(lim)} превышен на ${money(-left)}</span>`:
+        `<span class="${r>=.9?'near':''}">Лимит ${money(lim)} · осталось ${money(left)}</span>`}
+    const over=lim&&v>lim;
+    return `<button class="crow ${state.cats.has(c.id)?'sel':''}" data-cat="${c.id}" aria-pressed="${state.cats.has(c.id)}">
+      <span class="cname"><span class="dot" style="background:${c.color}"></span><span>${c.name}</span></span>
+      <span class="camt num">${money(v)}</span>
+      <span class="track"><span class="fill" style="width:${v/scale*100}%;background:${over?'var(--danger)':c.color}"></span>${lim?`<span class="limit" style="left:calc(${lim/scale*100}% - 1px)" title="Лимит"></span>`:''}</span>
+      <span class="cmeta">${meta}</span></button>`}).join('')+hint;
+  el.querySelectorAll('[data-cat]').forEach(btn=>btn.onclick=()=>toggleCat(btn.dataset.cat));
+}
+
+function niceMax(v){if(v<=0)return 1000;const p=Math.pow(10,Math.floor(Math.log10(v)));for(const k of [1,2,2.5,5,10])if(k*p>=v)return k*p;return 10*p}
+function renderDays(cur,y,m,elapsed,total){
+  const n=daysIn(y,m);const per=new Array(n).fill(0);
+  cur.forEach(e=>{const d=+e.date.slice(8,10);if(d>=1&&d<=n)per[d-1]+=+e.amount||0});
+  const W=640,H=210,L=46,R=6,T=10,B=24;const iw=W-L-R,ih=H-T-B;
+  const max=niceMax(Math.max(...per));const bw=iw/n;
+  const isCur=y===now.getFullYear()&&m===now.getMonth();
+  let s=`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Расходы по дням">`;
+  [0,.5,1].forEach(f=>{const yy=T+ih-ih*f;s+=`<line class="gl" x1="${L}" x2="${W-R}" y1="${yy}" y2="${yy}"/><text class="ax" x="${L-6}" y="${yy+4}" text-anchor="end">${f?short(max*f):'0'}</text>`});
+  per.forEach((v,i)=>{const x=L+i*bw;const h=v?Math.max(2,v/max*ih):2;const today=isCur&&i+1===now.getDate();
+    s+=`<g><title>${i+1} ${MONTHS_GEN[m]}: ${money(v)}</title><rect class="hit" x="${x}" y="${T}" width="${bw}" height="${ih}"/><rect class="bar ${v?'':'zero'} ${today?'today':''}" x="${x+bw*.18}" y="${T+ih-h}" width="${bw*.64}" height="${h}" rx="2"/></g>`;
+    if(i===0||(i+1)%5===0)s+=`<text class="ax" x="${x+bw/2}" y="${H-6}" text-anchor="middle">${i+1}</text>`});
+  s+='</svg>';
+  const maxDay=per.indexOf(Math.max(...per));
+  const noSpend=per.slice(0,elapsed).filter(v=>!v).length;
+  s+=`<div class="daystat"><span>Самый затратный день: <b>${total?`${maxDay+1} ${MONTHS_GEN[m]} · ${money(per[maxDay])}`:'—'}</b></span><span>Дней без трат: <b>${elapsed?noSpend:'—'}</b></span>${isCur?'<span>Тёмный столбец — сегодня</span>':''}</div>`;
+  $('#days').innerHTML=s;
+}
+
+function toggleCat(id){state.cats.has(id)?state.cats.delete(id):state.cats.add(id);render()}
+
+function renderList(cur,byCat){
+  const counts={};cur.forEach(e=>counts[e.category]=(counts[e.category]||0)+1);
+  const present=CATS.filter(c=>counts[c.id]);
+  $('#chips').innerHTML=`<button class="chip" data-all aria-pressed="${!state.cats.size}">Все</button>`+
+    present.map(c=>`<button class="chip" data-c="${c.id}" aria-pressed="${state.cats.has(c.id)}"><span class="dot" style="background:${c.color}"></span>${c.name} <span class="n">${counts[c.id]}</span></button>`).join('');
+  $('#chips').querySelector('[data-all]').onclick=()=>{state.cats.clear();render()};
+  $('#chips').querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>toggleCat(b.dataset.c));
+
+  const q=state.q.trim().toLowerCase();
+  let list=cur.filter(e=>(!state.cats.size||state.cats.has(e.category))&&(!q||(e.note||'').toLowerCase().includes(q)||(CAT[e.category]?.name||'').toLowerCase().includes(q)));
+  const by={
+    'date-desc':(a,b)=>b.date.localeCompare(a.date)||(b.createdAt||0)-(a.createdAt||0),
+    'date-asc':(a,b)=>a.date.localeCompare(b.date)||(a.createdAt||0)-(b.createdAt||0),
+    'amt-desc':(a,b)=>b.amount-a.amount,'amt-asc':(a,b)=>a.amount-b.amount,
+    'cat':(a,b)=>CATS.findIndex(c=>c.id===a.category)-CATS.findIndex(c=>c.id===b.category)||b.amount-a.amount
+  }[state.sort];
+  list=[...list].sort(by);
+  const rows=$('#rows');
+  if(!list.length){rows.innerHTML=`<tr><td colspan="5" class="empty">${cur.length?'Ничего не найдено. Измените фильтры или поиск.':'В этом месяце пока нет расходов.'}</td></tr>`}
+  else rows.innerHTML=list.map(e=>{const c=CAT[e.category]||CAT.other;const d=e.date.split('-');
+    return `<tr data-id="${esc(e.id)}" tabindex="0"><td class="date num">${+d[2]} ${MONTHS_GEN[+d[1]-1]}</td><td class="note">${esc(e.note)||'<span class="sub">без описания</span>'}${state.acc==='all'?`<span class="acc ${accOf(e)}">${ACCOUNTS[accOf(e)]}</span>`:''}${e.example?'<span class="pill">пример</span>':''}</td><td class="cat"><span class="tag"><span class="dot" style="background:${c.color}"></span>${c.name}</span></td><td class="method">${METHODS[e.method]||''}</td><td class="amt r num">${money(+e.amount||0)}</td></tr>`}).join('');
+  rows.querySelectorAll('tr[data-id]').forEach(tr=>{const open=()=>openForm(state.items.find(x=>x.id===tr.dataset.id));tr.onclick=open;tr.onkeydown=ev=>{if(ev.key==='Enter')open()}});
+  const filtered=state.cats.size||q;
+  $('#ltotal').innerHTML=`<span>${filtered?'Показано':'Всего'} ${list.length} ${plural(list.length,'операция','операции','операций')}</span><span>Итого: <b class="num">${money(sum(list))}</b></span>`;
+}
+
+/* ---------- form ---------- */
+function openForm(item){
+  if(state.readOnly&&!item)return;
+  const e=item||{amount:'',date:(state.y===now.getFullYear()&&state.m===now.getMonth())?iso(now):ymKey(state.y,state.m)+'-01',category:'food',note:'',method:'card',account:state.acc==='all'?'personal':state.acc};
+  const eAcc=accOf(e);
+  const root=$('#modalRoot');
+  root.innerHTML=`<div class="overlay" id="ov"><form class="modal" id="f" novalidate>
+    <h3>${item?'Изменить расход':'Новый расход'}</h3>
+    <div class="field"><span class="lbl">Счёт</span><div class="seg">${Object.entries(ACCOUNTS).map(([k,v])=>`<label><input type="radio" name="acc" value="${k}" ${k===eAcc?'checked':''}>${v}</label>`).join('')}</div></div>
+    <div class="row2">
+      <div class="field"><label for="fAmount">Сумма, ₽</label><input id="fAmount" class="amount-in num" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" value="${e.amount}" required></div>
+      <div class="field"><label for="fDate">Дата</label><input id="fDate" type="date" value="${e.date}" required></div>
+    </div>
+    <div class="field"><label for="fNote">Описание</label><input id="fNote" type="text" maxlength="120" placeholder="Например, продукты на неделю" value="${esc(e.note)}"></div>
+    <div class="field"><span class="lbl">Категория</span><div class="catpick">${CATS.map(c=>`<label><input type="radio" name="cat" value="${c.id}" ${c.id===e.category?'checked':''}><span class="dot" style="background:${c.color}"></span>${c.name}</label>`).join('')}</div></div>
+    <div class="field"><span class="lbl">Способ оплаты</span><div class="seg">${Object.entries(METHODS).map(([k,v])=>`<label><input type="radio" name="method" value="${k}" ${k===e.method?'checked':''}>${v}</label>`).join('')}</div></div>
+    <div class="err-text" id="fErr" hidden></div>
+    <div class="mfoot">${item&&!state.readOnly?'<button type="button" class="btn danger" id="fDel">Удалить</button>':''}
+      <div class="right"><button type="button" class="btn" id="fCancel">Отмена</button>${state.readOnly?'':'<button type="submit" class="btn primary">Сохранить</button>'}</div></div>
+  </form></div>`;
+  const close=()=>{root.innerHTML='';document.removeEventListener('keydown',onKey);if(tg){tg.BackButton.offClick(close);tg.BackButton.hide()}};
+  if(tg){tg.BackButton.onClick(close);tg.BackButton.show()}
+  const onKey=ev=>{if(ev.key==='Escape')close()};
+  document.addEventListener('keydown',onKey);
+  $('#ov').addEventListener('mousedown',ev=>{if(ev.target.id==='ov')close()});
+  $('#fCancel').onclick=close;
+  setTimeout(()=>$('#fAmount').focus(),0);
+  const del=$('#fDel');
+  if(del)del.onclick=async()=>{
+    if(del.dataset.armed){close();try{await backend.remove(item.id);toast('Расход удалён')}catch(e){}return}
+    del.dataset.armed='1';del.textContent='Точно удалить?';
+  };
+  $('#f').onsubmit=async ev=>{
+    ev.preventDefault();
+    const amount=parseFloat(String($('#fAmount').value).replace(',','.'));
+    const date=$('#fDate').value;
+    const err=$('#fErr');
+    if(!(amount>0)){err.textContent='Укажите сумму больше нуля.';err.hidden=false;$('#fAmount').focus();return}
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){err.textContent='Укажите дату.';err.hidden=false;return}
+    const data={amount:Math.round(amount*100)/100,date,category:document.querySelector('input[name=cat]:checked').value,
+      method:document.querySelector('input[name=method]:checked').value,account:document.querySelector('input[name=acc]:checked').value,note:$('#fNote').value.trim(),createdAt:item?.createdAt||Date.now()};
+    close();
+    try{
+      if(item)await backend.update(item.id,data);else await backend.add(data);
+      const [yy,mm]=date.split('-').map(Number);
+      if(state.acc!=='all'&&state.acc!==data.account)state.acc=data.account;
+      if(yy!==state.y||mm-1!==state.m){state.y=yy;state.m=mm-1}
+      render();
+      toast(item?'Изменения сохранены':'Расход добавлен');
+    }catch(e){}
+  };
+}
+
+/* ---------- misc ---------- */
+let toastT;
+function toast(t){const r=$('#toastRoot');r.innerHTML=`<div class="toast" role="status">${esc(t)}</div>`;clearTimeout(toastT);toastT=setTimeout(()=>r.innerHTML='',2600)}
+
+$('#prevM').onclick=()=>{const d=new Date(state.y,state.m-1,1);state.y=d.getFullYear();state.m=d.getMonth();state.cats.clear();render()};
+$('#nextM').onclick=()=>{const d=new Date(state.y,state.m+1,1);state.y=d.getFullYear();state.m=d.getMonth();state.cats.clear();render()};
+$('#addBtn').onclick=()=>openForm(null);
+document.querySelectorAll('#accsw [data-acc]').forEach(b=>b.onclick=()=>{state.acc=b.dataset.acc;state.budgetEdit=false;state.cats.clear();render()});
+$('#q').oninput=e=>{state.q=e.target.value;render()};
+$('#sort').onchange=e=>{state.sort=e.target.value;render()};
+$('#budgetBtn').onclick=async()=>{
+  if(state.budgetEdit){
+    const b={};CATS.forEach(c=>{const v=parseFloat($('#b-'+c.id).value);if(v>0)b[c.id]=Math.round(v)});
+    state.budgetEdit=false;
+    try{await backend.setBudgets({...state.budgets,[state.acc]:b});toast('Лимиты сохранены')}catch(e){}
+    render();
+  }else{state.budgetEdit=true;render()}
+};
+render();
+</script>
+
+</body>
+</html>
