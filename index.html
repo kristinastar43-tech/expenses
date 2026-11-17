@@ -67,6 +67,14 @@ h1{font-family:var(--display);font-weight:700;font-size:26px;letter-spacing:-.01
 .accsw button[aria-pressed="true"]{background:var(--ink);color:var(--bg);font-weight:600}
 .acc{font-size:11px;font-weight:600;border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:1px;background:var(--accent-soft);color:var(--ink)}
 .acc.work{background:var(--ink);color:var(--bg)}
+.overall{display:grid;grid-template-columns:minmax(0,1.3fr) repeat(3,minmax(0,1fr));gap:12px 20px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px 18px}
+.ov-t{font-weight:600;font-size:16px}
+.ov{display:flex;flex-direction:column;gap:2px;min-width:0;border-left:1px solid var(--line);padding-left:16px}
+.ov-k{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.ov-v{font-family:var(--display);font-weight:500;font-size:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inc{color:var(--good)} .neg{color:var(--danger)}
+@media (max-width:760px){.overall{grid-template-columns:repeat(3,minmax(0,1fr))}.ov-head{grid-column:1/-1}.ov-head+.ov{border-left:0;padding-left:0}}
+@media (max-width:480px){.overall{grid-template-columns:minmax(0,1fr);gap:8px}.ov{border-left:0;padding-left:0;flex-direction:row;justify-content:space-between;align-items:baseline;gap:12px}}
 .notice{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;background:var(--accent-soft);border-radius:12px;padding:10px 14px;font-size:14px}
 .notice.err{background:var(--danger-soft)}
 
@@ -198,11 +206,14 @@ button.crow:hover{background:var(--bg)}
         <div class="label" id="mLabel"></div>
         <button id="nextM" aria-label="Следующий месяц">›</button>
       </div>
-      <button class="btn primary" id="addBtn">+ Добавить расход</button>
+      <button class="btn primary" id="addBtn">+ Добавить</button>
+      <button class="btn" id="accessBtn">Доступ</button>
     </div>
   </header>
 
   <div id="notice"></div>
+
+  <section class="overall" id="overall" aria-label="За всё время" hidden></section>
 
   <section class="kpis" id="kpis" aria-label="Итоги месяца"></section>
 
@@ -258,7 +269,18 @@ const CATS=[
   {id:'edu',name:'Образование',color:'#66A80F'},
   {id:'other',name:'Другое',color:'#868E96'}
 ];
-const CAT=Object.fromEntries(CATS.map(c=>[c.id,c]));
+const INCOME_CATS=[
+  {id:'inc_salary',name:'Зарплата',color:'#2B8A3E'},
+  {id:'inc_side',name:'Подработка',color:'#5C940D'},
+  {id:'inc_refund',name:'Возврат и кэшбэк',color:'#0B7285'},
+  {id:'inc_gift',name:'Подарок',color:'#AE3EC9'},
+  {id:'inc_interest',name:'Проценты',color:'#1971C2'},
+  {id:'inc_other',name:'Другой доход',color:'#495057'}
+];
+const ALLCATS=[...CATS,...INCOME_CATS];
+const CAT=Object.fromEntries(ALLCATS.map(c=>[c.id,c]));
+const isExp=e=>e.type!=='income';
+const catPickHtml=(type,sel)=>(type==='income'?INCOME_CATS:CATS).map((c,i)=>`<label><input type="radio" name="cat" value="${c.id}" ${(c.id===sel||(!sel&&i===0))?'checked':''}><span class="dot" style="background:${c.color}"></span>${c.name}</label>`).join('');
 const METHODS={card:'Карта',cash:'Наличные',transfer:'Перевод'};
 const ACCOUNTS={personal:'Личный',work:'Рабочий'};
 const accOf=e=>e.account==='work'?'work':'personal';
@@ -347,28 +369,34 @@ if(tg){
 const CHUNK=3800;
 const cs=(method,...args)=>new Promise((res,rej)=>tg.CloudStorage[method](...args,(err,val)=>err?rej(err):res(val)));
 const monthOf=date=>date.slice(0,7).replace('-','_');
-const pack=e=>[e.id,+e.date.slice(8,10),e.amount,e.category,e.method,e.account==='work'?1:0,e.note||'',e.example?1:0,e.createdAt||0];
-const unpack=(r,g)=>({id:r[0],date:g.replace('_','-')+'-'+pad(r[1]),amount:r[2],category:r[3],method:r[4],account:r[5]?'work':'personal',note:r[6],example:!!r[7],createdAt:r[8]});
+const pack=e=>[e.id,+e.date.slice(8,10),e.amount,e.category,e.method,e.account==='work'?1:0,e.note||'',e.example?1:0,e.createdAt||0,e.type==='income'?1:0];
+const unpack=(r,g)=>({id:r[0],date:g.replace('_','-')+'-'+pad(r[1]),amount:r[2],category:r[3],method:r[4],account:r[5]?'work':'personal',note:r[6],example:!!r[7],createdAt:r[8],type:r[9]?'income':'expense'});
 function splitChunks(json){const parts=[];for(let i=0;i<json.length;i+=CHUNK)parts.push(json.slice(i,i+CHUNK));if(!parts.length)parts.push('');parts[0]=parts.length+'|'+parts[0];return parts}
 function joinChunks(get){const first=get(0);if(first==null)return null;const bar=first.indexOf('|');const n=parseInt(first.slice(0,bar),10);if(!(n>0))return null;let s=first.slice(bar+1);for(let i=1;i<n;i++){const p=get(i);if(p==null)return null;s+=p}return s}
 
+const hasCloud=()=>!!(tg&&tg.CloudStorage&&tg.isVersionAtLeast('6.9'));
+async function readCloudData(){
+  const keys=await cs('getKeys');
+  const vals={};
+  for(let i=0;i<keys.length;i+=40)Object.assign(vals,await cs('getItems',keys.slice(i,i+40)));
+  const budgets=normBudgets(vals.budgets?JSON.parse(vals.budgets):null);
+  const months=new Set(keys.filter(k=>/^m_\d{4}_\d{2}_\d+$/.test(k)).map(k=>k.slice(2,9)));
+  const items=[],broken=[],written={};
+  months.forEach(g=>{
+    written[g]=keys.filter(k=>k.startsWith('m_'+g+'_')).length;
+    const s=joinChunks(i=>vals['m_'+g+'_'+i]);
+    try{JSON.parse(s).forEach(r=>items.push(unpack(r,g)))}catch(e){broken.push(g.replace('_','.'))}
+  });
+  return {items,budgets,broken,written};
+}
+
 async function startCloud(){
-  state.mode='cloud';render();
-  const written={};// месяц -> сколько частей лежит в облаке
+  state.mode='cloud';state.readOnly=false;state.notice=null;render();
+  let written={};// месяц -> сколько частей лежит в облаке
   try{
-    const keys=await cs('getKeys');
-    const vals={};
-    for(let i=0;i<keys.length;i+=40)Object.assign(vals,await cs('getItems',keys.slice(i,i+40)));
-    state.budgets=normBudgets(vals.budgets?JSON.parse(vals.budgets):null);
-    const months=new Set(keys.filter(k=>/^m_\d{4}_\d{2}_\d+$/.test(k)).map(k=>k.slice(2,9)));
-    const items=[];const broken=[];
-    months.forEach(g=>{
-      written[g]=keys.filter(k=>k.startsWith('m_'+g+'_')).length;
-      const s=joinChunks(i=>vals['m_'+g+'_'+i]);
-      try{JSON.parse(s).forEach(r=>items.push(unpack(r,g)))}catch(e){broken.push(g.replace('_','.'))}
-    });
-    state.items=items;
-    if(broken.length)state.notice={err:true,text:'Не удалось прочитать записи за '+broken.join(', ')+'. Остальные данные на месте.'};
+    const d=await readCloudData();
+    written=d.written;state.items=d.items;state.budgets=d.budgets;
+    if(d.broken.length)state.notice={err:true,text:'Не удалось прочитать записи за '+d.broken.join(', ')+'. Остальные данные на месте.'};
   }catch(e){
     state.notice={err:true,text:'Не удалось загрузить данные из Telegram. Закройте приложение и откройте снова.'};
     state.readOnly=true;
@@ -402,7 +430,204 @@ async function startCloud(){
   render();
 }
 
-if(tg&&tg.CloudStorage&&tg.isVersionAtLeast('6.9'))startCloud();else startLocal();
+/* ---------- Настройки на устройстве (ключ, репозиторий) ---------- */
+// В Telegram — облако Telegram этого пользователя (видно только ему), вне Telegram — память браузера.
+const kv={
+  async get(k){if(hasCloud()){try{return (await cs('getItem',k))||null}catch(e){return null}}try{return localStorage.getItem('exp_'+k)}catch(e){return null}},
+  async set(k,v){if(hasCloud())return cs('setItem',k,v);try{localStorage.setItem('exp_'+k,v)}catch(e){}},
+  async del(k){if(hasCloud()){try{await cs('removeItem',k)}catch(e){}return}try{localStorage.removeItem('exp_'+k)}catch(e){}}
+};
+
+/* ---------- Общий доступ через закрытый репозиторий GitHub ---------- */
+const GH_API='https://api.github.com';
+const DATA_PATH='data.json';
+const ROLE_NAMES={editor:'Редактор',viewer:'Только просмотр'};
+function b64enc(str){const bytes=new TextEncoder().encode(str);let bin='';for(let i=0;i<bytes.length;i+=0x8000)bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+0x8000));return btoa(bin)}
+function b64dec(b64){const bin=atob(String(b64||'').replace(/\s/g,''));const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return new TextDecoder().decode(bytes)}
+async function gh(cfg,method,path,body){
+  let r;
+  try{
+    r=await fetch(GH_API+path,{method,cache:'no-store',headers:Object.assign({'Authorization':'Bearer '+cfg.token,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'},body?{'Content-Type':'application/json'}:{}),body:body?JSON.stringify(body):undefined});
+  }catch(e){const err=new Error('network');err.status=0;throw err}
+  let data=null;try{data=await r.json()}catch(e){}
+  if(!r.ok){const err=new Error((data&&data.message)||('HTTP '+r.status));err.status=r.status;throw err}
+  return data;
+}
+function ghErrText(e){
+  const s=e&&e.status;
+  if(s===0)return 'Нет связи с GitHub. Проверьте интернет и попробуйте ещё раз.';
+  if(s===401)return 'Ключ не подходит или у него закончился срок. Создайте новый ключ и подключите его в разделе «Доступ».';
+  if(s===404)return 'Репозиторий не найден или ключ не даёт к нему доступа. Проверьте название и настройки ключа.';
+  if(s===403)return 'Ключ не даёт нужных прав на этот репозиторий.';
+  if(s===413)return 'Файл с записями стал слишком большим для загрузки.';
+  return 'GitHub ответил ошибкой: '+((e&&e.message)||'неизвестная ошибка');
+}
+async function ghRead(cfg){
+  try{
+    const d=await gh(cfg,'GET',`/repos/${cfg.repo}/contents/${DATA_PATH}`);
+    if(!d.content&&d.size>0){const err=new Error('too big');err.status=413;throw err}
+    const text=b64dec(d.content);const j=text.trim()?JSON.parse(text):{};
+    return {sha:d.sha,data:{items:Array.isArray(j.items)?j.items:[],budgets:normBudgets(j.budgets)}};
+  }catch(e){if(e.status===404)return {sha:null,data:{items:[],budgets:normBudgets(null)}};throw e}
+}
+async function ghWrite(cfg,sha,data,message){
+  // одна запись на строку, чтобы в истории GitHub было видно, что поменялось
+  const body='{"version":1,"updatedAt":'+JSON.stringify(new Date().toISOString())+',\n"budgets":'+JSON.stringify(data.budgets)+',\n"items":[\n'+data.items.map(e=>JSON.stringify(e)).join(',\n')+'\n]}\n';
+  const req={message,content:b64enc(body)};if(sha)req.sha=sha;
+  const d=await gh(cfg,'PUT',`/repos/${cfg.repo}/contents/${DATA_PATH}`,req);
+  return d.content.sha;
+}
+async function detectRole(cfg){
+  // Пробуем записать служебный файл: ключ «только чтение» GitHub не пропустит.
+  const p=`/repos/${cfg.repo}/contents/.access-check`;
+  let sha=null;
+  try{sha=(await gh(cfg,'GET',p)).sha}catch(e){if(e.status!==404)throw e}
+  try{
+    const req={message:'Проверка ключа редактора',content:b64enc('Проверка доступа на запись: '+new Date().toISOString()+'\n')};if(sha)req.sha=sha;
+    await gh(cfg,'PUT',p,req);return 'editor';
+  }catch(e){if(e.status===403||e.status===404)return 'viewer';throw e}
+}
+function normRepo(s){return String(s||'').trim().replace(/^https?:\/\/(www\.)?github\.com\//i,'').replace(/\.git$/i,'').replace(/\/+$/,'')}
+async function connectGitHub(repoRaw,tokenRaw){
+  const repo=normRepo(repoRaw),token=String(tokenRaw||'').trim();
+  if(!/^[\w.-]+\/[\w.-]+$/.test(repo))throw new Error('Укажите репозиторий в виде «логин/expenses-data».');
+  if(!token)throw new Error('Вставьте ключ доступа.');
+  const cfg={repo,token};
+  let info;
+  try{info=await gh(cfg,'GET','/repos/'+repo)}catch(e){throw new Error(ghErrText(e))}
+  if(!info.private)throw new Error('Репозиторий '+repo+' открытый: записи в нём увидят все. В настройках репозитория сделайте его закрытым (Private) и подключите снова.');
+  try{cfg.role=await detectRole(cfg)}catch(e){throw new Error(ghErrText(e))}
+  await kv.set('gh_repo',repo);await kv.set('gh_token',token);await kv.set('gh_role',cfg.role);await kv.del('mode_solo');
+  return cfg;
+}
+async function loadCfg(){
+  const [repo,token,role]=await Promise.all([kv.get('gh_repo'),kv.get('gh_token'),kv.get('gh_role')]);
+  return repo&&token?{repo,token,role:role==='editor'?'editor':'viewer'}:null;
+}
+
+let ghCfg=null;
+async function readLegacy(){
+  // Записи, которые раньше хранились только у этого пользователя (облако Telegram или браузер).
+  try{
+    if(hasCloud()){const d=await readCloudData();return {items:d.items.filter(e=>!e.example),budgets:d.budgets}}
+    const s=lsGet();return s?{items:(s.items||[]).filter(e=>!e.example),budgets:normBudgets(s.budgets)}:null;
+  }catch(e){return null}
+}
+
+async function startGitHub(cfg){
+  ghCfg=cfg;
+  state.mode='gh';state.dbLoaded=false;state.readOnly=cfg.role!=='editor';state.notice=null;state.migrate=null;state.items=[];render();
+  let sha=null,pending=0;
+  const load=async()=>{const r=await ghRead(cfg);sha=r.sha;state.items=r.data.items;state.budgets=r.data.budgets};
+  try{await load()}
+  catch(e){state.notice={err:true,text:ghErrText(e)};state.dbLoaded=true;state.readOnly=true;render();return}
+  state.dbLoaded=true;
+
+  let queue=Promise.resolve();
+  const commit=(op,msg)=>{
+    const local=op({items:state.items,budgets:state.budgets});
+    state.items=local.items;state.budgets=local.budgets;render();
+    pending++;
+    const p=queue.then(async()=>{
+      try{
+        for(let attempt=0;;attempt++){
+          try{sha=await ghWrite(cfg,sha,{items:state.items,budgets:state.budgets},msg);return}
+          catch(e){
+            if((e.status===409||e.status===422)&&attempt===0){
+              // файл успели изменить с другого устройства: берём свежую версию и повторяем это изменение поверх неё
+              const r=await ghRead(cfg);sha=r.sha;const merged=op(r.data);state.items=merged.items;state.budgets=merged.budgets;render();continue;
+            }
+            throw e;
+          }
+        }
+      }catch(e){
+        if(e.status===403){state.readOnly=true;cfg.role='viewer';kv.set('gh_role','viewer');toast('У этого ключа доступ только для просмотра. Изменение не сохранено.')}
+        else toast('Не сохранено. '+ghErrText(e));
+        try{await load()}catch(_){}
+        render();throw e;
+      }finally{pending--}
+    });
+    queue=p.catch(()=>{});
+    return p;
+  };
+  const amt=e=>money(+e.amount||0);
+  backend={
+    add(e){const it={...e,id:uid()};return commit(d=>({...d,items:[...d.items,it]}),'Добавлен расход: '+(e.note||CAT[e.category]?.name||'')+', '+amt(e))},
+    update(id,e){return commit(d=>({...d,items:d.items.map(x=>x.id===id?{...e,id}:x)}),'Изменён расход: '+(e.note||'')+', '+amt(e))},
+    remove(id){const old=state.items.find(x=>x.id===id);return commit(d=>({...d,items:d.items.filter(x=>x.id!==id)}),'Удалён расход: '+(old?(old.note||'')+', '+amt(old):id))},
+    setBudgets(b){return commit(d=>({...d,budgets:b}),'Изменены лимиты')},
+    addMany(list,msg){const added=list.map(e=>({...e,id:e.id||uid()}));return commit(d=>{const have=new Set(d.items.map(x=>x.id));return {...d,items:[...d.items,...added.filter(x=>!have.has(x.id))]}},msg||('Добавлено записей: '+added.length))},
+    removeMany(ids){const s=new Set(ids);return commit(d=>({...d,items:d.items.filter(x=>!s.has(x.id))}),'Удалено записей: '+ids.length)}
+  };
+  state.refresh=async(manual)=>{
+    if(pending||state.mode!=='gh')return;
+    try{await load();render();if(manual)toast('Данные обновлены')}catch(e){if(manual)toast(ghErrText(e))}
+  };
+
+  if(cfg.role==='editor'&&(await kv.get('migrated'))!=='1'){
+    const legacy=await readLegacy();
+    if(legacy&&legacy.items.length){
+      const have=new Set(state.items.map(x=>x.id));
+      const fresh=legacy.items.filter(x=>!have.has(x.id));
+      if(fresh.length)state.migrate={items:fresh,budgets:legacy.budgets};
+    }
+  }
+  render();
+}
+
+function startPersonal(){if(hasCloud())startCloud();else startLocal()}
+
+async function boot(){
+  const cfg=await loadCfg();
+  if(cfg)return startGitHub(cfg);
+  if((await kv.get('mode_solo'))==='1')return startPersonal();
+  state.mode='setup';render();openAccess(true);
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.refresh)state.refresh(false)});
+
+/* ---------- окно «Доступ» ---------- */
+function openAccess(first){
+  const root=$('#modalRoot');
+  const connected=state.mode==='gh'&&ghCfg;
+  const info=connected?`<div class="notice"><span>Подключено к <b>${esc(ghCfg.repo)}</b>. Ваш доступ: <b>${ROLE_NAMES[ghCfg.role]||''}</b>.</span></div>`:
+    state.mode==='cloud'||state.mode==='local'?`<div class="notice"><span>Сейчас записи видите только вы${state.mode==='cloud'?' (облако Telegram)':' (этот браузер)'}.</span></div>`:'';
+  root.innerHTML=`<div class="overlay" id="ov"><form class="modal" id="af" novalidate>
+    <h3>${first?'Подключение общего доступа':'Доступ'}</h3>
+    ${info}
+    <div class="sub">Общие записи лежат в закрытом репозитории GitHub. Ключ редактора позволяет добавлять и менять расходы, ключ «только чтение» даёт только просмотр. Ключ хранится ${tg?'в вашем облаке Telegram':'в этом браузере'} и никому не передаётся.</div>
+    <div class="field"><label for="aRepo">Репозиторий с данными</label><input id="aRepo" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="логин/expenses-data" value="${esc(connected?ghCfg.repo:'')}"></div>
+    <div class="field"><label for="aToken">${connected?'Новый ключ доступа':'Ключ доступа'}</label><input id="aToken" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…"></div>
+    <div class="err-text" id="aErr" hidden></div>
+    <div class="mfoot">
+      ${connected?'<button type="button" class="btn" id="aRefresh">Обновить данные</button><button type="button" class="btn danger" id="aOff">Отключить ключ</button>':''}
+      ${!connected?'<button type="button" class="btn" id="aSolo">Пока без общего доступа</button>':''}
+      <div class="right">${first?'':'<button type="button" class="btn" id="aCancel">Закрыть</button>'}<button type="submit" class="btn primary" id="aOk">Подключить</button></div>
+    </div>
+  </form></div>`;
+  const close=()=>{root.innerHTML='';document.removeEventListener('keydown',onKey);if(tg){tg.BackButton.offClick(close);tg.BackButton.hide()}};
+  const onKey=ev=>{if(ev.key==='Escape'&&!first)close()};
+  document.addEventListener('keydown',onKey);
+  if(!first&&tg){tg.BackButton.onClick(close);tg.BackButton.show()}
+  const c=$('#aCancel');if(c)c.onclick=close;
+  const solo=$('#aSolo');if(solo)solo.onclick=async()=>{close();await kv.set('mode_solo','1');if(state.mode==='setup'||state.mode==='loading')startPersonal()};
+  const rf=$('#aRefresh');if(rf)rf.onclick=()=>{close();state.refresh&&state.refresh(true)};
+  const off=$('#aOff');if(off)off.onclick=async()=>{
+    if(!off.dataset.armed){off.dataset.armed='1';off.textContent='Точно отключить?';return}
+    close();await kv.del('gh_token');await kv.del('gh_role');ghCfg=null;state.refresh=null;state.items=[];state.mode='setup';render();openAccess(true);
+  };
+  $('#af').onsubmit=async ev=>{
+    ev.preventDefault();
+    const err=$('#aErr'),ok=$('#aOk');err.hidden=true;ok.disabled=true;ok.textContent='Проверяю…';
+    try{
+      const cfg=await connectGitHub($('#aRepo').value,$('#aToken').value);
+      close();await startGitHub(cfg);
+      toast(cfg.role==='editor'?'Подключено: можно добавлять и менять записи':'Подключено: режим просмотра');
+    }catch(e){err.textContent=e.message||'Не удалось подключиться.';err.hidden=false;ok.disabled=false;ok.textContent='Подключить'}
+  };
+  setTimeout(()=>{const f=$('#aRepo');if(f&&!f.value)f.focus();else{const t=$('#aToken');if(t)t.focus()}},0);
+}
+
+boot();
 
 /* ---------- examples ---------- */
 function makeExamples(){
@@ -422,6 +647,9 @@ function makeExamples(){
     [[3,'subs','Сервис для работы с документами',990],[8,'telecom','Рабочий телефон',500]].forEach(f=>{if(f[0]<=last)add(D(f[0]),f[1],f[2],f[3],'card','work')});
     const work=[['transport','Такси к клиенту',[400,1100],4],['cafe','Обед с клиентом',[1500,3500],2],['other','Канцелярия',[300,900],1],['edu','Профессиональная книга',[700,1500],back],['transport','Билеты в командировку',[6000,9000],back],['home','Гостиница в командировке',[4500,7000],back]];
     work.forEach(([cat,note,[a,b],n])=>{for(let i=0;i<n;i++){const d=1+Math.floor(rnd()*last);add(D(d),cat,note,between(a,b),'card','work')}});
+    const inc=(day,cat,note,amount,account='personal')=>{if(day<=last){add(D(day),cat,note,amount,'transfer',account);items[items.length-1].type='income'}};
+    inc(5,'inc_salary','Аванс',45000);inc(20,'inc_salary','Зарплата',60000);inc(14,'inc_side','Оплата за проект',25000,'work');
+    if(back){inc(25,'inc_refund','Кэшбэк за месяц',between(800,1500));inc(12,'inc_other','Компенсация командировки',between(15000,20000),'work')}
   }
   return {items,budgets:{personal:{food:25000,cafe:9000,transport:6000,fun:5000,clothes:6000},work:{transport:12000,cafe:5000}}};
 }
@@ -434,21 +662,27 @@ function sum(list){return list.reduce((s,e)=>s+(+e.amount||0),0)}
 function render(){
   const {y,m}=state;
   $('#mLabel').textContent=MONTHS[m]+' '+y;
-  $('#modeLine').textContent=state.mode==='loading'?'Загрузка…':state.mode==='cloud'?(state.dbLoaded?'Записи хранятся в облаке Telegram и видны на всех ваших устройствах':'Загружаю записи из Telegram…'):state.mode==='db'?'Записи видны только вам и сохраняются в вашем аккаунте':'Записи сохраняются только в этом браузере';
-  $('#addBtn').disabled=state.readOnly;
+  $('#modeLine').textContent=state.mode==='loading'?'Загрузка…':state.mode==='setup'?'Общий доступ не подключён':state.mode==='gh'?(!state.dbLoaded?'Загружаю общие записи…':state.readOnly?'Только просмотр · общие записи':'Общие записи · вы редактор'):state.mode==='cloud'?(state.dbLoaded?'Записи хранятся в облаке Telegram и видны на всех ваших устройствах':'Загружаю записи из Telegram…'):state.mode==='db'?'Записи видны только вам и сохраняются в вашем аккаунте':'Записи сохраняются только в этом браузере';
+  $('#addBtn').hidden=state.readOnly||state.mode==='setup'||(state.mode==='gh'&&!state.dbLoaded);
   document.querySelectorAll('#accsw [data-acc]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.acc===state.acc));
 
-  const cur=monthItems(y,m);
-  const pd=new Date(y,m-1,1);const prev=monthItems(pd.getFullYear(),pd.getMonth());
+  const all=monthItems(y,m);const cur=all.filter(isExp);
+  const pd=new Date(y,m-1,1);const prev=monthItems(pd.getFullYear(),pd.getMonth()).filter(isExp);
   const total=sum(cur),ptotal=sum(prev);
 
   // notice
   const hasEx=state.items.some(e=>e.example);
   let n='';
   if(state.notice)n=`<div class="notice ${state.notice.err?'err':''}">${esc(state.notice.text)}</div>`;
+  else if(state.migrate&&!state.readOnly)n=`<div class="notice"><span>У вас есть ${state.migrate.items.length} ${plural(state.migrate.items.length,'запись','записи','записей')}, которые раньше хранились только ${tg?'в Telegram':'в этом браузере'}. Перенести их в общие записи?</span><button class="linkbtn" id="migYes">Перенести</button><button class="linkbtn" id="migNo">Не переносить</button></div>`;
   else if(hasEx&&!state.readOnly)n=`<div class="notice"><span>Сейчас здесь примеры, чтобы было видно, как всё работает. Записи с пометкой «пример» можно удалить разом.</span><button class="linkbtn" id="clearEx">Удалить примеры</button></div>`;
-  else if((state.mode==='db'||state.mode==='cloud')&&state.dbLoaded&&!state.items.length&&!state.readOnly)n=`<div class="notice"><span>Пока нет ни одной записи. Добавьте первый расход кнопкой «+ Добавить расход» или загрузите примеры.</span><button class="linkbtn" id="loadEx">Загрузить примеры</button></div>`;
+  else if((state.mode==='db'||state.mode==='cloud'||state.mode==='gh')&&state.dbLoaded&&!state.items.length&&!state.readOnly)n=`<div class="notice"><span>Пока нет ни одной записи. Добавьте первую запись кнопкой «+ Добавить» или загрузите примеры.</span><button class="linkbtn" id="loadEx">Загрузить примеры</button></div>`;
   $('#notice').innerHTML=n;
+  const my=$('#migYes');if(my)my.onclick=async()=>{const m=state.migrate;state.migrate=null;
+    try{await backend.addMany(m.items,'Перенесены записи из личного хранилища: '+m.items.length);
+      const b=state.budgets;if(!Object.keys(b.personal||{}).length&&!Object.keys(b.work||{}).length&&(Object.keys(m.budgets.personal||{}).length||Object.keys(m.budgets.work||{}).length))await backend.setBudgets(m.budgets);
+      await kv.set('migrated','1');toast('Записи перенесены')}catch(e){state.migrate=m;render()}};
+  const mn=$('#migNo');if(mn)mn.onclick=async()=>{state.migrate=null;await kv.set('migrated','1');render()};
   const ce=$('#clearEx');if(ce)ce.onclick=async()=>{await backend.removeMany(state.items.filter(e=>e.example).map(e=>e.id));toast('Примеры удалены')};
   const le=$('#loadEx');if(le)le.onclick=async()=>{const ex=makeExamples();await backend.addMany(ex.items);if(!Object.keys(state.budgets.personal).length&&!Object.keys(state.budgets.work).length)await backend.setBudgets(ex.budgets);toast('Примеры загружены')};
 
@@ -471,7 +705,23 @@ function render(){
 
   renderCats(byCat,total);
   renderDays(cur,y,m,elapsed,total);
-  renderList(cur,byCat);
+  renderList(all,byCat);
+  renderOverall();
+}
+
+function renderOverall(){
+  const el=$('#overall');
+  const list=state.items.filter(inAcc);
+  if(!list.length){el.hidden=true;el.innerHTML='';return}
+  el.hidden=false;
+  const exp=sum(list.filter(isExp)),inc=sum(list.filter(e=>!isExp(e))),bal=inc-exp;
+  const dates=list.map(e=>e.date).sort();
+  const f=d=>{const p=d.split('-');return +p[2]+' '+MONTHS_GEN[+p[1]-1]+' '+p[0]};
+  const acc=state.acc==='all'?'оба счёта':ACCOUNTS[state.acc].toLowerCase()+' счёт';
+  el.innerHTML=`<div class="ov-head"><div class="ov-t">За всё время</div><div class="sub">${f(dates[0])} — ${f(dates[dates.length-1])} · ${acc}</div></div>
+    <div class="ov"><div class="ov-k">Зачислено</div><div class="ov-v num inc">+ ${money(inc)}</div></div>
+    <div class="ov"><div class="ov-k">Израсходовано</div><div class="ov-v num">− ${money(exp)}</div></div>
+    <div class="ov"><div class="ov-k">Остаток</div><div class="ov-v num ${bal<0?'neg':''}">${bal<0?'− ':''}${money(Math.abs(bal))}</div></div>`;
 }
 
 function renderCats(byCat,total){
@@ -524,7 +774,7 @@ function toggleCat(id){state.cats.has(id)?state.cats.delete(id):state.cats.add(i
 
 function renderList(cur,byCat){
   const counts={};cur.forEach(e=>counts[e.category]=(counts[e.category]||0)+1);
-  const present=CATS.filter(c=>counts[c.id]);
+  const present=ALLCATS.filter(c=>counts[c.id]);
   $('#chips').innerHTML=`<button class="chip" data-all aria-pressed="${!state.cats.size}">Все</button>`+
     present.map(c=>`<button class="chip" data-c="${c.id}" aria-pressed="${state.cats.has(c.id)}"><span class="dot" style="background:${c.color}"></span>${c.name} <span class="n">${counts[c.id]}</span></button>`).join('');
   $('#chips').querySelector('[data-all]').onclick=()=>{state.cats.clear();render()};
@@ -536,33 +786,35 @@ function renderList(cur,byCat){
     'date-desc':(a,b)=>b.date.localeCompare(a.date)||(b.createdAt||0)-(a.createdAt||0),
     'date-asc':(a,b)=>a.date.localeCompare(b.date)||(a.createdAt||0)-(b.createdAt||0),
     'amt-desc':(a,b)=>b.amount-a.amount,'amt-asc':(a,b)=>a.amount-b.amount,
-    'cat':(a,b)=>CATS.findIndex(c=>c.id===a.category)-CATS.findIndex(c=>c.id===b.category)||b.amount-a.amount
+    'cat':(a,b)=>ALLCATS.findIndex(c=>c.id===a.category)-ALLCATS.findIndex(c=>c.id===b.category)||b.amount-a.amount
   }[state.sort];
   list=[...list].sort(by);
   const rows=$('#rows');
   if(!list.length){rows.innerHTML=`<tr><td colspan="5" class="empty">${cur.length?'Ничего не найдено. Измените фильтры или поиск.':'В этом месяце пока нет расходов.'}</td></tr>`}
   else rows.innerHTML=list.map(e=>{const c=CAT[e.category]||CAT.other;const d=e.date.split('-');
-    return `<tr data-id="${esc(e.id)}" tabindex="0"><td class="date num">${+d[2]} ${MONTHS_GEN[+d[1]-1]}</td><td class="note">${esc(e.note)||'<span class="sub">без описания</span>'}${state.acc==='all'?`<span class="acc ${accOf(e)}">${ACCOUNTS[accOf(e)]}</span>`:''}${e.example?'<span class="pill">пример</span>':''}</td><td class="cat"><span class="tag"><span class="dot" style="background:${c.color}"></span>${c.name}</span></td><td class="method">${METHODS[e.method]||''}</td><td class="amt r num">${money(+e.amount||0)}</td></tr>`}).join('');
+    return `<tr data-id="${esc(e.id)}" tabindex="0"><td class="date num">${+d[2]} ${MONTHS_GEN[+d[1]-1]}</td><td class="note">${esc(e.note)||'<span class="sub">без описания</span>'}${state.acc==='all'?`<span class="acc ${accOf(e)}">${ACCOUNTS[accOf(e)]}</span>`:''}${e.example?'<span class="pill">пример</span>':''}</td><td class="cat"><span class="tag"><span class="dot" style="background:${c.color}"></span>${c.name}</span></td><td class="method">${METHODS[e.method]||''}</td><td class="amt r num ${isExp(e)?'':'inc'}">${isExp(e)?'':'+ '}${money(+e.amount||0)}</td></tr>`}).join('');
   rows.querySelectorAll('tr[data-id]').forEach(tr=>{const open=()=>openForm(state.items.find(x=>x.id===tr.dataset.id));tr.onclick=open;tr.onkeydown=ev=>{if(ev.key==='Enter')open()}});
   const filtered=state.cats.size||q;
-  $('#ltotal').innerHTML=`<span>${filtered?'Показано':'Всего'} ${list.length} ${plural(list.length,'операция','операции','операций')}</span><span>Итого: <b class="num">${money(sum(list))}</b></span>`;
+  $('#ltotal').innerHTML=`<span>${filtered?'Показано':'Всего'} ${list.length} ${plural(list.length,'операция','операции','операций')}</span><span>Расходы: <b class="num">${money(sum(list.filter(isExp)))}</b>${list.some(e=>!isExp(e))?` · Доходы: <b class="num inc">+ ${money(sum(list.filter(e=>!isExp(e))))}</b>`:''}</span>`;
 }
 
 /* ---------- form ---------- */
 function openForm(item){
   if(state.readOnly&&!item)return;
-  const e=item||{amount:'',date:(state.y===now.getFullYear()&&state.m===now.getMonth())?iso(now):ymKey(state.y,state.m)+'-01',category:'food',note:'',method:'card',account:state.acc==='all'?'personal':state.acc};
+  const e=item||{amount:'',date:(state.y===now.getFullYear()&&state.m===now.getMonth())?iso(now):ymKey(state.y,state.m)+'-01',category:'food',note:'',method:'card',type:'expense',account:state.acc==='all'?'personal':state.acc};
+  const eType=isExp(e)?'expense':'income';
   const eAcc=accOf(e);
   const root=$('#modalRoot');
   root.innerHTML=`<div class="overlay" id="ov"><form class="modal" id="f" novalidate>
-    <h3>${item?'Изменить расход':'Новый расход'}</h3>
+    <h3>${item?'Изменить запись':'Новая запись'}</h3>
+    <div class="seg" role="group" aria-label="Тип"><label><input type="radio" name="type" value="expense" ${eType==='expense'?'checked':''}>Расход</label><label><input type="radio" name="type" value="income" ${eType==='income'?'checked':''}>Доход</label></div>
     <div class="field"><span class="lbl">Счёт</span><div class="seg">${Object.entries(ACCOUNTS).map(([k,v])=>`<label><input type="radio" name="acc" value="${k}" ${k===eAcc?'checked':''}>${v}</label>`).join('')}</div></div>
     <div class="row2">
       <div class="field"><label for="fAmount">Сумма, ₽</label><input id="fAmount" class="amount-in num" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0" value="${e.amount}" required></div>
       <div class="field"><label for="fDate">Дата</label><input id="fDate" type="date" value="${e.date}" required></div>
     </div>
     <div class="field"><label for="fNote">Описание</label><input id="fNote" type="text" maxlength="120" placeholder="Например, продукты на неделю" value="${esc(e.note)}"></div>
-    <div class="field"><span class="lbl">Категория</span><div class="catpick">${CATS.map(c=>`<label><input type="radio" name="cat" value="${c.id}" ${c.id===e.category?'checked':''}><span class="dot" style="background:${c.color}"></span>${c.name}</label>`).join('')}</div></div>
+    <div class="field"><span class="lbl">Категория</span><div class="catpick" id="catpick">${catPickHtml(eType,e.category)}</div></div>
     <div class="field"><span class="lbl">Способ оплаты</span><div class="seg">${Object.entries(METHODS).map(([k,v])=>`<label><input type="radio" name="method" value="${k}" ${k===e.method?'checked':''}>${v}</label>`).join('')}</div></div>
     <div class="err-text" id="fErr" hidden></div>
     <div class="mfoot">${item&&!state.readOnly?'<button type="button" class="btn danger" id="fDel">Удалить</button>':''}
@@ -574,6 +826,7 @@ function openForm(item){
   document.addEventListener('keydown',onKey);
   $('#ov').addEventListener('mousedown',ev=>{if(ev.target.id==='ov')close()});
   $('#fCancel').onclick=close;
+  document.querySelectorAll('input[name=type]').forEach(r=>r.onchange=()=>{$('#catpick').innerHTML=catPickHtml(r.value,null);$('#fNote').placeholder=r.value==='income'?'Например, зарплата за октябрь':'Например, продукты на неделю'});
   setTimeout(()=>$('#fAmount').focus(),0);
   const del=$('#fDel');
   if(del)del.onclick=async()=>{
@@ -588,7 +841,7 @@ function openForm(item){
     if(!(amount>0)){err.textContent='Укажите сумму больше нуля.';err.hidden=false;$('#fAmount').focus();return}
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){err.textContent='Укажите дату.';err.hidden=false;return}
     const data={amount:Math.round(amount*100)/100,date,category:document.querySelector('input[name=cat]:checked').value,
-      method:document.querySelector('input[name=method]:checked').value,account:document.querySelector('input[name=acc]:checked').value,note:$('#fNote').value.trim(),createdAt:item?.createdAt||Date.now()};
+      method:document.querySelector('input[name=method]:checked').value,account:document.querySelector('input[name=acc]:checked').value,type:document.querySelector('input[name=type]:checked').value,note:$('#fNote').value.trim(),createdAt:item?.createdAt||Date.now()};
     close();
     try{
       if(item)await backend.update(item.id,data);else await backend.add(data);
@@ -596,7 +849,7 @@ function openForm(item){
       if(state.acc!=='all'&&state.acc!==data.account)state.acc=data.account;
       if(yy!==state.y||mm-1!==state.m){state.y=yy;state.m=mm-1}
       render();
-      toast(item?'Изменения сохранены':'Расход добавлен');
+      toast(item?'Изменения сохранены':data.type==='income'?'Доход добавлен':'Расход добавлен');
     }catch(e){}
   };
 }
@@ -608,6 +861,7 @@ function toast(t){const r=$('#toastRoot');r.innerHTML=`<div class="toast" role="
 $('#prevM').onclick=()=>{const d=new Date(state.y,state.m-1,1);state.y=d.getFullYear();state.m=d.getMonth();state.cats.clear();render()};
 $('#nextM').onclick=()=>{const d=new Date(state.y,state.m+1,1);state.y=d.getFullYear();state.m=d.getMonth();state.cats.clear();render()};
 $('#addBtn').onclick=()=>openForm(null);
+$('#accessBtn').onclick=()=>openAccess(false);
 document.querySelectorAll('#accsw [data-acc]').forEach(b=>b.onclick=()=>{state.acc=b.dataset.acc;state.budgetEdit=false;state.cats.clear();render()});
 $('#q').oninput=e=>{state.q=e.target.value;render()};
 $('#sort').onchange=e=>{state.sort=e.target.value;render()};
