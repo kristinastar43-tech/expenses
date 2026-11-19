@@ -237,7 +237,7 @@ button.crow:hover{background:var(--bg)}
   </div>
 
   <section class="panel">
-    <div class="ph"><h2>Операции</h2></div>
+    <div class="ph"><h2>Операции</h2><button class="btn small" id="importBtn">Импорт</button><input type="file" id="importFile" accept=".json,application/json" hidden></div>
     <div class="filters" id="chips"></div>
     <div class="tools">
       <input id="q" type="search" placeholder="Поиск по описанию" aria-label="Поиск">
@@ -340,7 +340,7 @@ function startLocal(){
     async remove(id){state.items=state.items.filter(x=>x.id!==id);persist();render()},
     async setBudgets(b){state.budgets=b;persist();render()},
     async setCats(cfg){applyCats(cfg);persist();render()},
-    async addMany(list){list.forEach(e=>state.items.push({...e,id:uid()}));persist();render()},
+    async addMany(list){list.forEach(e=>state.items.push({...e,id:e.id||uid()}));persist();render()},
     async removeMany(ids){const s=new Set(ids);state.items=state.items.filter(x=>!s.has(x.id));persist();render()}
   };
   render();
@@ -364,7 +364,7 @@ function startDb(db,userId){
     update:(id,e)=>guard(col.doc(id).set(clean(e))),
     remove:id=>guard(col.doc(id).delete()),
     setBudgets:b=>guard(profile.set({budgets:b})),
-    async addMany(list){for(let i=0;i<list.length;i+=6){await Promise.all(list.slice(i,i+6).map(e=>guard(col.doc().set(clean(e)))))}},
+    async addMany(list){for(let i=0;i<list.length;i+=6){await Promise.all(list.slice(i,i+6).map(e=>guard((e.id?col.doc(e.id):col.doc()).set(clean(e)))))}},
     async removeMany(ids){for(let i=0;i<ids.length;i+=6){await Promise.all(ids.slice(i,i+6).map(id=>guard(col.doc(id).delete())))}}
   };
   render();
@@ -445,7 +445,7 @@ async function startCloud(){
     async remove(id){const old=state.items.find(x=>x.id===id);state.items=state.items.filter(x=>x.id!==id);render();if(old)await writeMonth(monthOf(old.date))},
     async setBudgets(b){state.budgets=b;render();await enqueue(()=>cs('setItem','budgets',JSON.stringify(b)).catch(fail))},
     async setCats(cfg){applyCats(cfg);render();await enqueue(()=>cs('setItem','cats',JSON.stringify(catsCfg)).catch(fail))},
-    async addMany(list){const added=list.map(e=>({...e,id:uid()}));state.items.push(...added);render();await writeMonths(added)},
+    async addMany(list){const added=list.map(e=>({...e,id:e.id||uid()}));state.items.push(...added);render();await writeMonths(added)},
     async removeMany(ids){const s=new Set(ids);const gone=state.items.filter(x=>s.has(x.id));state.items=state.items.filter(x=>!s.has(x.id));render();await writeMonths(gone)}
   };
   render();
@@ -751,6 +751,7 @@ function renderCats(byCat,total){
   $('#budgetBtn').textContent=state.budgetEdit?'Готово':'Лимиты';
   $('#budgetBtn').hidden=state.readOnly||state.acc==='all';
   $('#catsBtn').hidden=state.readOnly||state.mode==='setup'||state.mode==='loading';
+  $('#importBtn').hidden=$('#catsBtn').hidden;
   if(state.budgetEdit){
     el.innerHTML=`<div class="sub">Месячные лимиты для счёта «${ACCOUNTS[state.acc]}». Пустое поле означает без лимита.</div>`+
       CATS.map(c=>`<div class="bedit"><label class="cname" for="b-${c.id}"><span class="dot" style="background:${c.color}"></span><span>${c.name}</span></label><input id="b-${c.id}" class="num" type="number" min="0" step="100" inputmode="numeric" placeholder="без лимита" value="${b[c.id]||''}"></div>`).join('');
@@ -947,6 +948,63 @@ function openCats(){
     try{await backend.setCats({expense:draft.expense,income:draft.income});toast('Категории сохранены')}catch(e){}
   };
 }
+
+/* ---------- импорт записей из файла ---------- */
+function parseImport(text){
+  let j;try{j=JSON.parse(text)}catch(e){throw new Error('Не удалось прочитать файл: это не файл для импорта.')}
+  const arr=Array.isArray(j)?j:(j&&Array.isArray(j.items)?j.items:null);
+  if(!arr)throw new Error('В файле нет списка записей.');
+  const items=[],bad=[];const t0=Date.now();
+  arr.forEach((r,i)=>{
+    const amount=+(r&&r.amount);
+    if(!r||!/^\d{4}-\d{2}-\d{2}$/.test(r.date||'')||!(amount>0)){bad.push(i+1);return}
+    const id=r.id?String(r.id).replace(/[^\w-]/g,'').slice(0,40):'';
+    items.push({id:id||undefined,date:r.date,type:r.type==='income'?'income':'expense',amount:Math.round(amount*100)/100,
+      category:String(r.category||''),account:r.account==='work'?'work':'personal',method:METHODS[r.method]?r.method:'card',
+      note:String(r.note||'').slice(0,120),comment:String(r.comment||'').slice(0,500),createdAt:t0+i});
+  });
+  return {items,bad};
+}
+function openImport(items,bad){
+  const T=typeof tg!=='undefined'?tg:null;
+  const have=new Set(state.items.map(x=>x.id));
+  const fresh=items.filter(x=>!x.id||!have.has(x.id));
+  const inc=sum(fresh.filter(e=>!isExp(e))),exp=sum(fresh.filter(isExp));
+  const dates=fresh.map(e=>e.date).sort();
+  const f=d=>{const p=d.split('-');return +p[2]+' '+MONTHS_GEN[+p[1]-1]+' '+p[0]};
+  const accs=[...new Set(fresh.map(accOf))].map(a=>ACCOUNTS[a]).join(', ');
+  const root=$('#modalRoot');
+  root.innerHTML=`<div class="overlay" id="ov"><div class="modal" role="dialog" aria-label="Импорт">
+    <h3>Импорт записей</h3>
+    ${fresh.length?`<div>Будет добавлено <b>${fresh.length} ${plural(fresh.length,'запись','записи','записей')}</b> за период с ${f(dates[0])} по ${f(dates[dates.length-1])}.</div>
+    <div class="overall" style="grid-template-columns:repeat(2,minmax(0,1fr))"><div class="ov" style="border:0;padding:0"><div class="ov-k">Зачисления</div><div class="ov-v num inc">+ ${money(inc)}</div></div><div class="ov"><div class="ov-k">Расходы</div><div class="ov-v num">− ${money(exp)}</div></div></div>
+    <div class="sub">Счёт: ${esc(accs)}. После добавления записи можно изменить или удалить по одной.</div>`:'<div>Все записи из этого файла уже есть в приложении. Добавлять нечего.</div>'}
+    ${items.length-fresh.length&&fresh.length?`<div class="sub">${items.length-fresh.length} ${plural(items.length-fresh.length,'запись уже есть','записи уже есть','записей уже есть')} в приложении, их пропущу.</div>`:''}
+    ${bad.length?`<div class="err-text">Пропущены строки без даты или суммы: ${bad.slice(0,10).join(', ')}${bad.length>10?'…':''}</div>`:''}
+    <div class="mfoot"><div class="right"><button type="button" class="btn" id="iCancel">${fresh.length?'Отмена':'Закрыть'}</button>${fresh.length?'<button type="button" class="btn primary" id="iOk">Добавить</button>':''}</div></div>
+  </div></div>`;
+  const close=()=>{root.innerHTML='';document.removeEventListener('keydown',onKey);if(T){T.BackButton.offClick(close);T.BackButton.hide()}};
+  const onKey=ev=>{if(ev.key==='Escape')close()};
+  document.addEventListener('keydown',onKey);
+  if(T){T.BackButton.onClick(close);T.BackButton.show()}
+  $('#iCancel').onclick=close;
+  const ok=$('#iOk');
+  if(ok)ok.onclick=async()=>{
+    close();
+    const last=dates[dates.length-1].split('-').map(Number);
+    state.y=last[0];state.m=last[1]-1;state.acc='all';state.cats.clear();
+    try{await backend.addMany(fresh,'Импорт записей: '+fresh.length);toast('Добавлено записей: '+fresh.length)}catch(e){}
+    render();
+  };
+}
+
+$('#importBtn').onclick=()=>$('#importFile').click();
+$('#importFile').onchange=async ev=>{
+  const file=ev.target.files&&ev.target.files[0];ev.target.value='';
+  if(!file)return;
+  try{const {items,bad}=parseImport(await file.text());if(!items.length)throw new Error('В файле нет записей с датой и суммой.');openImport(items,bad)}
+  catch(e){toast(e.message||'Не удалось прочитать файл.')}
+};
 
 $('#addBtn').onclick=()=>openForm(null);
 $('#catsBtn').onclick=()=>openCats();
